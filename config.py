@@ -36,6 +36,14 @@ DATABENTO_DATASET = "OPRA.PILLAR"
 OPTIONS_EXPIRY_RANGE_DAYS = 7  # Only look at options expiring within N days
 RISK_FREE_RATE = float(os.getenv("RISK_FREE_RATE", "0.043"))  # 4.3%
 
+# ── ClickHouse ─────────────────────────────────────────────────────────────
+CH_HOST = os.getenv("CH_HOST", "")
+CH_PORT = os.getenv("CH_PORT", "9000")  # Native protocol port
+CH_DATABASE = os.getenv("CH_DATABASE", "default")
+CH_USER = os.getenv("CH_USER", "default")
+CH_PASSWORD = os.getenv("CH_PASSWORD", "")
+CH_GEX_ENABLED = os.getenv("CH_GEX_ENABLED", "true").lower() == "true"
+
 # ── Manual Override Paths ───────────────────────────────────────────────────
 # Drop JSON files here to override API data for any section
 MANUAL_DATA_DIR = BASE_DIR / "manual_data"

@@ -8,7 +8,7 @@ import logging
 import math
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -292,11 +292,36 @@ def generate_narrative(ticker, gex_data, levels, skew):
 class DatabentGammaCollector:
     """Fetches OPRA data from Databento and computes GEX/gamma levels."""
 
-    def __init__(self, client=None):
-        """Initialize with optional Databento client for testing."""
+    def __init__(self, client=None, ch_store=None):
+        """Initialize with optional Databento client and ClickHouse store.
+
+        Args:
+            client: Databento Historical client (for testing)
+            ch_store: GEXClickHouseStore instance. If None and CH_GEX_ENABLED,
+                      one is created automatically.
+        """
         self._client = client
+        self._ch_store = ch_store
+        self._ch_store_initialized = ch_store is not None
         self._cache = {}
         self._cache_ts = {}
+
+    @property
+    def ch_store(self):
+        if self._ch_store is not None:
+            return self._ch_store
+        if self._ch_store_initialized:
+            return None
+        self._ch_store_initialized = True
+        if not config.CH_GEX_ENABLED or not config.CH_HOST:
+            return None
+        try:
+            from clickhouse_store import GEXClickHouseStore
+            self._ch_store = GEXClickHouseStore()
+            return self._ch_store
+        except Exception:
+            logger.exception("Failed to initialize ClickHouse store")
+            return None
 
     @property
     def client(self):
@@ -694,6 +719,16 @@ class DatabentGammaCollector:
             "dealer_positioning": narrative,
             "max_gamma_strike": levels.get("pin_level"),
         }
+
+        # Persist to ClickHouse
+        if self.ch_store is not None:
+            try:
+                self.ch_store.store_ticker_result(
+                    ticker, result, spot_price,
+                    snapshot_ts=datetime.now(timezone.utc),
+                )
+            except Exception:
+                logger.exception("ClickHouse persist failed for %s", ticker)
 
         # Cache
         self._cache[cache_key] = result

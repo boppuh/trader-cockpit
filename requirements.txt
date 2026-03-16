@@ -5,3 +5,4 @@ databento>=0.43.0
 scipy
 numpy
 pandas
+clickhouse-driver>=0.2.6
