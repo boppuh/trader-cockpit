@@ -178,14 +178,20 @@ def collect_gamma_squeeze() -> dict:
     return {"entries": [], "note": "DATA UNAVAILABLE"}
 
 
-def collect_options_data() -> dict:
-    """Options/gamma data — stub with manual override support."""
+def collect_options_data(quotes=None) -> dict:
+    """Options/gamma data — delegates to DatabentGammaCollector when configured.
+
+    Args:
+        quotes: dict of {ticker: {"price": float, ...}} for spot prices.
+    """
     manual = _load_manual_override("options")
     if manual:
         return manual
 
-    if config.OPTIONS_SOURCE == "stub":
-        return {}
+    if config.OPTIONS_SOURCE == "databento":
+        from databento_gamma import DatabentGammaCollector
+        collector = DatabentGammaCollector()
+        return collector.collect_all_tickers(quotes=quotes)
 
     return {}
 
@@ -342,10 +348,22 @@ def collect_all() -> dict:
 
     # 6. Options data (merge into core watchlist)
     try:
-        opts = collect_options_data()
+        opts = collect_options_data(quotes=data.get("core_watchlist"))
         for sym, opt_data in opts.items():
             if sym in data["core_watchlist"]:
                 data["core_watchlist"][sym]["options_data"] = opt_data
+            # Populate skew_data from GEX output
+            if "skew" in opt_data:
+                data["skew_data"][sym] = opt_data["skew"]
+            # Populate unusual_gamma_names from GEX output
+            if "gex" in opt_data:
+                gex_info = opt_data["gex"]
+                if gex_info.get("regime") == "SHORT_GAMMA":
+                    data["unusual_gamma_names"][sym] = {
+                        "gamma_squeeze_score": abs(gex_info.get("net_gex", 0)),
+                        "net_gex_formatted": gex_info.get("net_gex_formatted", ""),
+                        "regime": gex_info.get("regime", ""),
+                    }
     except Exception:
         logger.exception("Options data collection failed")
 
