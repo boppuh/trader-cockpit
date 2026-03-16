@@ -5,6 +5,7 @@ from pathlib import Path
 
 # ── API Keys (from environment variables) ──────────────────────────────────
 FMP_API_KEY = os.getenv("FMP_API_KEY", "")
+DATABENTO_API_KEY = os.getenv("DATABENTO_API_KEY", "")
 
 # ── Core Watchlist ──────────────────────────────────────────────────────────
 CORE_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "IWM"]
@@ -29,6 +30,11 @@ DARK_POOL_SOURCE = os.getenv("COCKPIT_DARK_POOL_SOURCE", "stub")
 OPTIONS_SOURCE = os.getenv("COCKPIT_OPTIONS_SOURCE", "stub")
 GAMMA_SOURCE = os.getenv("COCKPIT_GAMMA_SOURCE", "stub")
 WSB_SOURCE = os.getenv("COCKPIT_WSB_SOURCE", "api")
+
+# ── Databento / GEX ───────────────────────────────────────────────────────
+DATABENTO_DATASET = "OPRA.PILLAR"
+OPTIONS_EXPIRY_RANGE_DAYS = 7  # Only look at options expiring within N days
+RISK_FREE_RATE = float(os.getenv("RISK_FREE_RATE", "0.043"))  # 4.3%
 
 # ── Manual Override Paths ───────────────────────────────────────────────────
 # Drop JSON files here to override API data for any section
