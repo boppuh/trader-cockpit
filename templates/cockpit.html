@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<!--
+   ______                            __
+  / ____/___  ____ ___  ____  __  __/ /____  _____
+ / /   / __ \/ __ `__ \/ __ \/ / / / __/ _ \/ ___/
+/ /___/ /_/ / / / / / / /_/ / /_/ / /_/  __/ /
+\____/\____/_/ /_/ /_/ .___/\__,_/\__/\___/_/
+                    /_/
+        Trader's Cockpit — Self-Hosted Edition
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trader's Cockpit | {{ market_date | default('Market Dashboard') }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-left">
+    <svg class="logo-icon" width="28" height="28" viewBox="0 0 28 28" fill="none" aria-label="Cockpit Logo">
+      <rect x="2" y="2" width="24" height="24" rx="4" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M7 14h14M14 7v14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <circle cx="14" cy="14" r="3" stroke="currentColor" stroke-width="1.5"/>
+    </svg>
+    <h1 class="header-title">COCKPIT</h1>
+    <span class="header-date">{{ market_date_short | default('') }}</span>
+  </div>
+  <div class="header-right">
+    <div class="market-status">
+      <span class="status-dot pulse"></span>
+      <span>MARKET OPEN</span>
+    </div>
+    <span class="header-time" id="clock">{{ generated_at | default('--:-- ET') }}</span>
+    {% set sentiment_class = 'bearish' if overall_sentiment == 'BEARISH' else ('bullish' if overall_sentiment == 'BULLISH' else 'neutral') %}
+    <div class="regime-badge {{ sentiment_class }}">{{ overall_sentiment | default('NEUTRAL') }} REGIME</div>
+  </div>
+</header>
+
+<main class="dashboard">
+
+  <!-- TAPE DRIVER BANNER -->
+  {% if market_regime %}
+  <section class="tape-banner">
+    <div class="tape-label">TAPE DRIVER</div>
+    <div class="tape-content">
+      {% if market_regime.tape_driver is defined %}
+      <span class="tape-tag hedging">DEALER HEDGING</span>
+      <span class="tape-detail">{{ market_regime.tape_driver }}</span>
+      {% elif market_regime.classification is defined %}
+      <span class="tape-tag hedging">{{ market_regime.classification | upper }}</span>
+      <span class="tape-detail">{{ market_regime.dealer_gamma | default('') }}</span>
+      {% else %}
+      <span class="tape-tag hedging">MARKET UPDATE</span>
+      <span class="tape-detail">Data refreshed at {{ generated_at | default('--:--') }}.</span>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ROW 1: Core Ticker Grid -->
+  <section class="section-grid ticker-grid">
+    {% for sym in ['SPY', 'QQQ', 'NVDA', 'TSLA', 'IWM'] %}
+    {% set t = core_watchlist.get(sym, {}) if core_watchlist is defined else {} %}
+    {% set is_mini = (sym == 'IWM') %}
+    <div class="card ticker-card{{ ' mini' if is_mini else '' }}" data-ticker="{{ sym }}">
+      <div class="ticker-header">
+        <span class="ticker-symbol">{{ sym }}</span>
+        <span class="ticker-name">{{ ticker_names.get(sym, sym) if ticker_names is defined else sym }}</span>
+      </div>
+      <div class="ticker-price">
+        <span class="price">{{ t.get('price', 0) | fmt_number }}</span>
+        {% set chg = t.get('change', 0) %}
+        {% set chg_pct = t.get('change_pct', 0) %}
+        {% set direction = 'up' if chg >= 0 else 'down' %}
+        <span class="change {{ direction }}">{{ '+' if chg >= 0 else '' }}{{ chg | fmt_number }} ({{ '+' if chg_pct >= 0 else '' }}{{ '%.2f' | format(chg_pct) }}%)</span>
+      </div>
+      <div class="ticker-meta">
+        {% if not is_mini %}
+        <div class="meta-row"><span class="meta-label">Range</span><span class="meta-value">{{ t.get('day_low', 0) | fmt_number }} - {{ t.get('day_high', 0) | fmt_number }}</span></div>
+        {% endif %}
+        {% set vr = t.get('volume_ratio', 0) %}
+        {% set vr_class = 'danger' if vr < 0.45 else ('warning' if vr < 0.7 else '') %}
+        <div class="meta-row"><span class="meta-label">Vol Ratio</span><span class="meta-value {{ vr_class }}">{{ vr }}x</span></div>
+        {% if t.get('rsi_14') is defined and t.get('rsi_14') is not none %}
+        {% set rsi = t.get('rsi_14', 50) %}
+        {% set rsi_class = 'danger' if rsi < 30 else ('warning' if rsi < 50 else '') %}
+        <div class="meta-row"><span class="meta-label">RSI(14)</span><span class="meta-value {{ rsi_class }}">{{ '%.2f' | format(rsi) }}</span></div>
+        {% endif %}
+        {% set opts = t.get('options_data', {}) %}
+        {% if opts.get('gamma_flip') %}
+        <div class="meta-row"><span class="meta-label">Gamma Flip</span><span class="meta-value accent">{{ opts.gamma_flip }}</span></div>
+        {% elif opts.get('max_gamma_strike') %}
+        <div class="meta-row"><span class="meta-label">Pin Strike</span><span class="meta-value accent">{{ opts.max_gamma_strike }}</span></div>
+        {% endif %}
+        {% if t.get('dark_pool', {}).get('last_session_volume') and not is_mini %}
+        {% set dp = t.get('dark_pool', {}) %}
+        {% set dp_text = dp.get('last_session_volume', '') %}
+        {% if 'orders' in dp_text %}
+        {% set orders_part = dp_text.split('across ')[1].split(' orders')[0] if 'across ' in dp_text else '' %}
+        {% set vol_part = dp_text.split(' across')[0] if ' across' in dp_text else dp_text %}
+        <div class="meta-row"><span class="meta-label">DP Orders</span><span class="meta-value">{{ orders_part }} ({{ vol_part }})</span></div>
+        {% endif %}
+        {% endif %}
+        {% if not is_mini %}
+        <div class="meta-row"><span class="meta-label">Prev Close</span><span class="meta-value">{{ t.get('prev_close', 0) | fmt_number }}</span></div>
+        {% elif is_mini %}
+        <div class="meta-row"><span class="meta-label">Support</span><span class="meta-value">{{ t.get('prev_close', 0) | fmt_number }}</span></div>
+        {% endif %}
+      </div>
+      {% if not is_mini and opts %}
+      <div class="ticker-gamma">
+        <div class="gamma-label">GAMMA MAP</div>
+        {% set put_wall = opts.get('put_wall', 0) %}
+        {% set call_wall = opts.get('call_wall', 0) %}
+        {% set gamma_flip = opts.get('gamma_flip', 0) %}
+        {% set price = t.get('price', 0) %}
+        {% set is_at_flip = (price - gamma_flip)|abs < 2 if gamma_flip else false %}
+        <div class="gamma-bar">
+          <div class="gamma-zone put" style="width:42%" data-tooltip="Put Wall {{ put_wall }}">{{ put_wall }}P</div>
+          <div class="gamma-zone neutral{{ ' flip' if is_at_flip else '' }}" style="width:16%">
+            {% if call_wall > put_wall %}
+            {% set range_total = call_wall - put_wall %}
+            {% set marker_pos = ((price - put_wall) / range_total * 100) | int if range_total > 0 else 50 %}
+            {% set marker_pos = [0, [100, marker_pos] | min] | max %}
+            <div class="gamma-marker" style="left:{{ marker_pos }}%" data-tooltip="{{ 'AT GAMMA FLIP' if is_at_flip else 'Current ' ~ (price | fmt_number) }}"></div>
+            {% endif %}
+          </div>
+          <div class="gamma-zone call" style="width:42%" data-tooltip="Call Wall {{ call_wall }}">{{ call_wall }}C</div>
+        </div>
+        <div class="gamma-note">{{ opts.get('dealer_positioning', opts.get('net_gamma', '')) | truncate(80, true, '...') }}</div>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </section>
+
+  <!-- ROW 2: Setups + Watchlist -->
+  <div class="row-2">
+    <!-- SETUPS PANEL -->
+    <section class="card setups-panel">
+      <h2 class="section-title">{{ trade_setups | length if trade_setups is defined and trade_setups else 0 }} SETUPS WORTH STALKING</h2>
+
+      {% if trade_setups is defined and trade_setups %}
+      {% for setup in trade_setups %}
+      {% set conv_raw = setup.get('conviction', 'MEDIUM') | upper %}
+      {% set conv_class = 'high' if 'HIGH' in conv_raw and 'MED' not in conv_raw else 'medium' %}
+      <div class="setup" data-conviction="{{ conv_raw | lower | replace(' ', '-') }}">
+        <div class="setup-header">
+          <span class="setup-number">{{ '%02d' | format(loop.index) }}</span>
+          <span class="setup-name">{{ setup.get('name', 'Setup ' ~ loop.index) }}</span>
+          <span class="setup-type">{{ setup.get('type', '') | upper }}</span>
+          <span class="conviction {{ conv_class }}">{{ conv_raw }}</span>
+        </div>
+        <div class="setup-body">
+          <p class="setup-thesis">{{ setup.get('thesis', '') }}</p>
+          <div class="setup-grid">
+            <div class="setup-field"><span class="sf-label">Entry</span><span class="sf-value">{{ setup.get('entry', 'N/A') }}</span></div>
+            <div class="setup-field"><span class="sf-label">Target</span><span class="sf-value success">{{ setup.get('target', 'N/A') }}</span></div>
+            <div class="setup-field"><span class="sf-label">Stop</span><span class="sf-value danger">{{ setup.get('stop', 'N/A') }}</span></div>
+            <div class="setup-field"><span class="sf-label">R:R</span><span class="sf-value">{{ setup.get('risk_reward', 'N/A') }}</span></div>
+          </div>
+          {% if setup.get('edge') %}
+          <div class="setup-edge">EDGE: {{ setup.edge }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p style="color: var(--text-faint); font-size: var(--text-xs);">No setups available. Add manual_data/trade_setups.json or connect live analysis.</p>
+      {% endif %}
+    </section>
+
+    <!-- WATCHLIST + DARK POOL + GAMMA SQUEEZE -->
+    <div class="side-panels">
+      <section class="card watchlist-panel">
+        <h2 class="section-title">WATCHLIST</h2>
+        <div class="watchlist-table">
+          <div class="wl-row header">
+            <span>Ticker</span><span>Signal</span><span>Action</span>
+          </div>
+          {% if watchlist_additions is defined and watchlist_additions %}
+          {% for item in watchlist_additions %}
+          {% set is_hot = loop.index == 1 %}
+          <div class="wl-row{{ ' hot' if is_hot else '' }}">
+            <span class="wl-ticker">{{ item.get('ticker', '') }}</span>
+            <span class="wl-signal">
+              {% set reason = item.get('reason', '') | lower %}
+              {% if 'squeeze' in reason %}
+              <span class="tag squeeze">SQUEEZE</span>
+              {% elif 'gamma' in reason and 'score' in reason %}
+              <span class="tag gamma">GEX</span>
+              {% elif 'dark pool' in reason or 'dark_pool' in reason %}
+              <span class="tag darkpool">DARK</span>
+              {% elif 'wsb' in reason or 'reddit' in reason or 'retail' in reason %}
+              <span class="tag retail">WSB</span>
+              {% elif 'active' in reason or 'volume' in reason %}
+              <span class="tag volume">ACTIVE</span>
+              {% else %}
+              <span class="tag volume">WATCH</span>
+              {% endif %}
+            </span>
+            <span class="wl-note">{{ item.get('reason', '') | truncate(60, true, '...') }}</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="wl-row">
+            <span class="wl-ticker">--</span>
+            <span class="wl-signal">--</span>
+            <span class="wl-note">No watchlist data. Add manual_data/watchlist_additions.json.</span>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="card darkpool-panel">
+        <h2 class="section-title">DARK POOL FLOW</h2>
+        <div class="dp-grid">
+          {% if dark_pool_leaders is defined and dark_pool_leaders.get('top_flow') %}
+          {% for dp in dark_pool_leaders.top_flow %}
+          <div class="dp-row"><span class="dp-ticker">{{ dp.get('ticker', '') }}</span><span class="dp-vol">{{ dp.get('volume', '') }}</span><span class="dp-orders">{{ dp.get('orders', '') }}</span></div>
+          {% endfor %}
+          {% else %}
+          <div class="dp-row"><span class="dp-ticker">--</span><span class="dp-vol">--</span><span class="dp-orders">--</span></div>
+          {% endif %}
+        </div>
+        {% if dark_pool_leaders is defined and dark_pool_leaders.get('analysis') %}
+        <div class="dp-analysis">{{ dark_pool_leaders.analysis }}</div>
+        {% endif %}
+      </section>
+
+      <section class="card gamma-squeeze-panel">
+        <h2 class="section-title">GAMMA SQUEEZE BOARD</h2>
+        <div class="gs-grid">
+          <div class="gs-row header"><span>#</span><span>Ticker</span><span>Score</span><span>P/C &Delta;</span></div>
+          {% if gamma_squeeze_entries is defined and gamma_squeeze_entries %}
+          {% for gs in gamma_squeeze_entries %}
+          <div class="gs-row{{ ' hot' if loop.index == 1 else '' }}">
+            <span>{{ loop.index }}</span>
+            <span>{{ gs.get('ticker', '') }}</span>
+            <span>{{ gs.get('score', '') }}</span>
+            <span class="danger">{{ gs.get('pc_change', '') }}</span>
+          </div>
+          {% endfor %}
+          {% elif unusual_gamma_names is defined and unusual_gamma_names %}
+          {# Fallback: render from unusual_gamma_names dict #}
+          {% set gs_items = [] %}
+          {% for sym, gdata in unusual_gamma_names.items() %}
+          {% if gdata.get('gamma_squeeze_score') %}
+          {% set _ = gs_items.append({'ticker': sym, 'score': gdata.gamma_squeeze_score, 'pc_change': gdata.get('pc_ratio_change_pct', '')}) %}
+          {% endif %}
+          {% endfor %}
+          {% for gs in gs_items | sort(attribute='score', reverse=true) %}
+          <div class="gs-row{{ ' hot' if loop.index == 1 else '' }}">
+            <span>{{ loop.index }}</span>
+            <span>{{ gs.ticker }}</span>
+            <span>{{ gs.score }}</span>
+            <span class="danger">{{ gs.pc_change }}%</span>
+          </div>
+          {% endfor %}
+          {% else %}
+          <div class="gs-row"><span>--</span><span>--</span><span>--</span><span>--</span></div>
+          {% endif %}
+        </div>
+        <p class="gs-note">{{ gamma_squeeze_note | default('Scores from Fintel. Measures gamma exposure + P/C ratio collapse. Higher = more squeeze potential.') }}</p>
+      </section>
+    </div>
+  </div>
+
+  <!-- ROW 3: Market Regime + Skew + Retail Chatter -->
+  <div class="row-3">
+    <section class="card regime-panel">
+      <h2 class="section-title">MARKET REGIME</h2>
+      <div class="regime-grid">
+        {% if market_regime is defined and market_regime %}
+        {% if market_regime.get('classification') %}
+        <div class="regime-item">
+          <span class="regime-label">Classification</span>
+          <span class="regime-value warning">{{ market_regime.classification }}</span>
+        </div>
+        {% endif %}
+        {% if market_regime.get('dealer_gamma') %}
+        <div class="regime-item">
+          <span class="regime-label">Dealer Gamma</span>
+          <span class="regime-value danger">{{ market_regime.dealer_gamma }}</span>
+        </div>
+        {% endif %}
+        {% if market_regime.get('volatility_regime') %}
+        <div class="regime-item">
+          <span class="regime-label">Volatility</span>
+          <span class="regime-value warning">{{ market_regime.volatility_regime }}</span>
+        </div>
+        {% endif %}
+        {% if market_regime.get('0dte_impact') %}
+        <div class="regime-item">
+          <span class="regime-label">0DTE Impact</span>
+          <span class="regime-value">{{ market_regime['0dte_impact'] }}</span>
+        </div>
+        {% endif %}
+        {% if market_regime.get('opex_note') %}
+        <div class="regime-item">
+          <span class="regime-label">OPEX</span>
+          <span class="regime-value accent">{{ market_regime.opex_note }}</span>
+        </div>
+        {% endif %}
+        {% if market_regime.get('tape_driver') %}
+        <div class="regime-item">
+          <span class="regime-label">Conviction</span>
+          <span class="regime-value">{{ market_regime.tape_driver }}</span>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="regime-item">
+          <span class="regime-label">Status</span>
+          <span class="regime-value">No regime data available. Add manual_data/market_regime.json.</span>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card skew-panel">
+      <h2 class="section-title">PUT SKEW &amp; 0DTE</h2>
+      {% set skew_tickers = ['SPY', 'QQQ', 'NVDA', 'TSLA'] %}
+      {% for sym in skew_tickers %}
+      {% set t = core_watchlist.get(sym, {}) if core_watchlist is defined else {} %}
+      {% set opts = t.get('options_data', {}) %}
+      {% set skew_text = opts.get('0dte_activity', opts.get('skew', '')) %}
+      {% set skew_type = opts.get('skew', '') | lower %}
+      {% set fill_class = 'neutral' if 'normalizing' in skew_type or 'moderate' in skew_type else 'put' %}
+      {% set fill_width = 52 if fill_class == 'neutral' else (78 if sym == 'QQQ' else 68 if sym == 'SPY' else 65) %}
+      <div class="skew-item">
+        <span class="skew-ticker">{{ sym }}</span>
+        <div class="skew-bar"><div class="skew-fill {{ fill_class }}" style="width:{{ fill_width }}%"></div></div>
+        <span class="skew-label">{{ skew_text | default('No skew data available.') }}</span>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="card retail-panel">
+      <h2 class="section-title">RETAIL CHATTER (WSB)</h2>
+      <div class="retail-list">
+        {% if wsb_trending is defined and wsb_trending.get('top_picks') %}
+        {% for pick in wsb_trending.top_picks %}
+        {% if pick is string %}
+        {# Handle format like "MU (+22.46%)" or just "MU" #}
+        {% set parts = pick.split(' (') %}
+        {% set tick = parts[0] | replace('$', '') %}
+        {% set perf = parts[1] | replace(')', '') if parts | length > 1 else '' %}
+        {% set is_up = '+' in perf or (perf and perf[0] != '-') %}
+        {% else %}
+        {% set tick = pick %}
+        {% set perf = '' %}
+        {% set is_up = false %}
+        {% endif %}
+        <div class="retail-row">
+          <span class="ret-tick {{ 'up' if is_up else 'down' }}">{{ tick }}</span>
+          <span class="ret-perf {{ 'up' if is_up else 'down' }}{{ ' danger' if perf and perf | replace('%','') | replace('+','') | replace('-','') | float > 40 else '' }}">{{ perf }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="retail-row"><span class="ret-tick">--</span><span class="ret-perf">--</span></div>
+        {% endif %}
+      </div>
+      {% if wsb_trending is defined %}
+      <div class="retail-note">WSB Top {{ wsb_trending.get('top_picks', []) | length }} avg: {{ wsb_trending.get('avg_performance', 'N/A') }}. {{ wsb_trending.get('sentiment', '') }}</div>
+      {% endif %}
+    </section>
+  </div>
+
+  <!-- ROW 4: Top Movers -->
+  <div class="row-4">
+    <section class="card movers-panel">
+      <h2 class="section-title">TOP GAINERS</h2>
+      <div class="movers-list">
+        {% if gainers is defined and gainers %}
+        {% for g in gainers %}
+        <div class="mover-row">
+          <span class="m-tick">{{ g.get('ticker', '') }}</span>
+          <span class="m-perf up">+{{ '%.1f' | format(g.get('change_pct', 0)) }}%</span>
+          <span class="m-note">{{ g.get('name', '') }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="mover-row"><span class="m-tick">--</span><span class="m-perf">--</span><span class="m-note">No data</span></div>
+        {% endif %}
+      </div>
+    </section>
+    <section class="card movers-panel losers">
+      <h2 class="section-title">TOP LOSERS</h2>
+      <div class="movers-list">
+        {% if losers is defined and losers %}
+        {% for l in losers %}
+        <div class="mover-row">
+          <span class="m-tick">{{ l.get('ticker', '') }}</span>
+          <span class="m-perf down">{{ '%.1f' | format(l.get('change_pct', 0)) }}%</span>
+          <span class="m-note">{{ l.get('name', '') }}</span>
+        </div>
+        {% endfor %}
+        {% else %}
+        <div class="mover-row"><span class="m-tick">--</span><span class="m-perf">--</span><span class="m-note">No data</span></div>
+        {% endif %}
+      </div>
+    </section>
+    <section class="card sentiment-panel">
+      <h2 class="section-title">BULL / BEAR QUICK READ</h2>
+      {% set sentiment_tickers = ['NVDA', 'TSLA'] %}
+      {% for sym in sentiment_tickers %}
+      {% set t = core_watchlist.get(sym, {}) if core_watchlist is defined else {} %}
+      {% set sent = t.get('sentiment', {}) %}
+      {% if sent %}
+      <div class="sent-item">
+        <span class="sent-ticker">{{ sym }}</span>
+        {% if sent.get('bull_case') %}
+        <div class="sent-case bull">Bull: {{ sent.bull_case }}</div>
+        {% endif %}
+        {% if sent.get('bear_case') %}
+        <div class="sent-case bear">Bear: {{ sent.bear_case }}</div>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% if not (core_watchlist is defined and (core_watchlist.get('NVDA', {}).get('sentiment') or core_watchlist.get('TSLA', {}).get('sentiment'))) %}
+      <p style="color: var(--text-faint); font-size: var(--text-xs);">No sentiment data available. Add manual_data/sentiment.json.</p>
+      {% endif %}
+    </section>
+  </div>
+
+</main>
+
+<footer class="footer">
+  <div class="footer-left">
+    <span>Data: FMP API, Reddit/WSB, Fintel, Dark Pool feeds | Generated {{ generated_at | default('--:--') }}</span>
+  </div>
+  <div class="footer-right">
+    <span>Not financial advice. Do your own due diligence.</span>
+  </div>
+</footer>
+
+<script>
+// Clock
+function updateClock() {
+  const now = new Date();
+  const ct = now.toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  document.getElementById('clock').textContent = ct + ' CT';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// Subtle pulse animation on cards
+document.querySelectorAll('.ticker-card').forEach(card => {
+  card.addEventListener('mouseenter', () => card.classList.add('hover'));
+  card.addEventListener('mouseleave', () => card.classList.remove('hover'));
+});
+
+// Setup collapsible
+document.querySelectorAll('.setup-header').forEach(header => {
+  header.addEventListener('click', () => {
+    const setup = header.parentElement;
+    setup.classList.toggle('collapsed');
+  });
+});
+</script>
+</body>
+</html>

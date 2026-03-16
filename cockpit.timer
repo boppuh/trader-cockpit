@@ -1,0 +1,19 @@
+[Unit]
+Description=Trader's Cockpit Scheduled Updates
+Requires=cockpit.service
+
+[Timer]
+# Pre-market briefing (8:30 AM ET)
+OnCalendar=Mon..Fri *-*-* 08:30:00 America/New_York
+# Post-open check (9:35 AM ET)
+OnCalendar=Mon..Fri *-*-* 09:35:00 America/New_York
+# Midday update (12:00 PM ET)
+OnCalendar=Mon..Fri *-*-* 12:00:00 America/New_York
+# Into-close update (3:00 PM ET)
+OnCalendar=Mon..Fri *-*-* 15:00:00 America/New_York
+
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

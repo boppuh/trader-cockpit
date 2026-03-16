@@ -1,0 +1,25 @@
+[Unit]
+Description=Trader's Cockpit Dashboard Generator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cockpit
+Group=cockpit
+WorkingDirectory=/opt/cockpit
+ExecStart=/opt/cockpit/venv/bin/python /opt/cockpit/generate.py
+Environment=FMP_API_KEY=
+Environment=COCKPIT_OUTPUT_DIR=/var/www/cockpit
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cockpit
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/cockpit /opt/cockpit
+ProtectHome=true
+PrivateTmp=true
